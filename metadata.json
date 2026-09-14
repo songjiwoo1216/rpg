@@ -1,0 +1,6 @@
+{
+  "name": "탑 등반 방치형 RPG",
+  "description": "10개의 속성 탑을 등반하며 무작위 장비를 획득하고 상성을 공략하는 방치형 타워 RPG",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
