@@ -7,9 +7,16 @@ interface TowerListModalProps {
   onClose: () => void;
   currentTowerId: number;
   currentFloor: number;
+  towerCycle?: number;
 }
 
-export function TowerListModal({ isOpen, onClose, currentTowerId, currentFloor }: TowerListModalProps) {
+export function TowerListModal({
+  isOpen,
+  onClose,
+  currentTowerId,
+  currentFloor,
+  towerCycle = 1,
+}: TowerListModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -28,6 +35,11 @@ export function TowerListModal({ isOpen, onClose, currentTowerId, currentFloor }
           <div className="flex items-center gap-2">
             <Trophy className="w-5 h-5 text-amber-400" />
             <h2 className="text-base font-bold">10대 시험의 탑 목록</h2>
+            {towerCycle > 1 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-600/50 animate-pulse">
+                제 {towerCycle}회차
+              </span>
+            )}
           </div>
           <button
             id="close-tower-modal-btn"
@@ -39,7 +51,7 @@ export function TowerListModal({ isOpen, onClose, currentTowerId, currentFloor }
         </div>
 
         <p className="text-xs text-zinc-400 my-3">
-          각 탑은 100층으로 구성되어 있으며, 100층을 정복하면 다음 특색을 가진 탑의 1층으로 승급합니다.
+          각 탑은 100층으로 구성되어 있으며, 10개 탑 100층을 모두 정복하면 능력치가 강화된 다음 회차의 1탑 1층으로 승급합니다.
         </p>
 
         {/* 10개 탑 리스트 */}

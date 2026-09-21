@@ -1,6 +1,6 @@
-import { Play, Pause, Volume2, VolumeX, HelpCircle, Trophy, ScrollText, Layers } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, HelpCircle, Trophy, ScrollText, Layers, ShieldAlert } from 'lucide-react';
 import { TowerInfo, Monster, PlayerStats, ElementType, FloatingText } from '../types/game';
-import { getElementAdvantage, BOSS_TRAIT_INFO, getWeaponMotionType } from '../utils/constants';
+import { getElementAdvantage, BOSS_TRAIT_INFO, SPECIAL_PATTERN_INFO, getWeaponMotionType } from '../utils/constants';
 import { ElementBadge } from './ElementBadge';
 import { HeroPixelSprite, MonsterPixelSprite } from './PixelSprites';
 import { TowerBattleBackground } from './TowerBattleBackground';
@@ -8,6 +8,7 @@ import { TowerBattleBackground } from './TowerBattleBackground';
 interface BattleViewProps {
   currentTower: TowerInfo;
   currentFloor: number;
+  towerCycle: number;
   player: PlayerStats;
   totalAtk: number;
   totalHp: number;
@@ -30,6 +31,7 @@ interface BattleViewProps {
 export function BattleView({
   currentTower,
   currentFloor,
+  towerCycle,
   player,
   totalAtk,
   totalHp,
@@ -53,6 +55,8 @@ export function BattleView({
   const monsterHpPct = Math.max(0, Math.min(100, (monster.currentHp / monster.maxHp) * 100));
   const weaponMotion = getWeaponMotionType(player.equipped.weapon);
 
+  const specialPatternData = monster.specialPattern ? SPECIAL_PATTERN_INFO[monster.specialPattern] : null;
+
   return (
     <div id="battle-view" className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 sm:p-4 flex flex-col gap-3 shadow-xl relative overflow-hidden">
       {/* 배경 장식 은은한 그라데이션 및 탑별 고유 픽셀 환경 배경 */}
@@ -65,6 +69,12 @@ export function BattleView({
             <span className="text-[11px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono font-bold">
               제 {currentTower.id}탑
             </span>
+            {towerCycle > 1 && (
+              <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded bg-gradient-to-r from-purple-900 to-indigo-900 text-purple-200 border border-purple-400/80 font-black flex items-center gap-1 shadow animate-pulse">
+                <span>🌀</span>
+                <span>{towerCycle}회차 (순환 {towerCycle})</span>
+              </span>
+            )}
             <h1 className="text-sm sm:text-base font-black text-zinc-100 flex items-center gap-1.5">
               <span>{currentTower.name}</span>
               <ElementBadge element={currentTower.element} size="sm" />
@@ -264,10 +274,22 @@ export function BattleView({
           </div>
         </div>
 
-        {/* 보스 특수 효과 뱃지 바 (우측 상단 위치) */}
-        {monster.isBoss && monster.bossTraits && monster.bossTraits.length > 0 && (
+        {/* 보스 특수 효과 & 특수 패턴 뱃지 바 (우측 상단 위치) */}
+        {monster.isBoss && (
           <div className="relative z-20 flex items-center justify-end gap-1 flex-wrap mt-1">
-            {monster.bossTraits.map((trait) => {
+            {/* 특수 패턴 뱃지 (2회차 이상 보스) */}
+            {specialPatternData && (
+              <span
+                title={specialPatternData.desc}
+                className={`text-[9px] leading-tight px-1.5 py-0.5 rounded border font-black flex items-center gap-0.5 shadow-sm ${specialPatternData.badgeColor}`}
+              >
+                <span>{specialPatternData.icon}</span>
+                <span>{specialPatternData.name}</span>
+              </span>
+            )}
+
+            {/* 수문장 패시브 뱃지 */}
+            {monster.bossTraits?.map((trait) => {
               const info = BOSS_TRAIT_INFO[trait];
               return (
                 <span
@@ -284,27 +306,58 @@ export function BattleView({
         )}
 
         {/* 3. 메인 배틀 아레나 (큰 배경 위에 좌측 등반자와 우측 몬스터가 마주보고 서서 전투) */}
-        <div className="relative z-20 flex-1 flex items-end justify-between px-2 sm:px-6 pb-2 pt-4">
-          {/* 등반자 (좌측) */}
-          <div className="relative flex flex-col items-center">
-            {/* 플레이어 피격 데미지 플로팅 텍스트 */}
-            <div className="absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1 z-30 whitespace-nowrap">
+        <div className="relative z-20 flex-1 min-h-[140px] sm:min-h-[160px] flex items-end justify-between px-2 sm:px-6 pb-2 pt-4 overflow-hidden">
+          {/* ★ 핵심: 전투 데미지 플로팅 HUD (등반자와 적의 전신 모습을 단 1픽셀도 가리지 않는 상공 공간) ★ */}
+          <div className="absolute top-1 left-0 right-0 px-3 sm:px-6 flex justify-between items-start pointer-events-none z-30">
+            {/* 좌측 상공: 플레이어 피격 알림 */}
+            <div className="flex flex-col items-start gap-1">
               {floatingTexts
                 .filter((f) => f.target === 'player')
                 .map((f) => (
                   <div
                     key={f.id}
-                    className={`text-xs font-black font-mono animate-bounce px-2 py-0.5 rounded shadow-lg ${
-                      f.isCrit
-                        ? 'bg-amber-400 text-black text-sm border-2 border-amber-300 font-black'
-                        : 'bg-rose-950/95 text-rose-200 border border-rose-500'
-                    }`}
+                    className="font-black font-mono animate-bounce px-2 py-0.5 rounded-md shadow-lg bg-zinc-950/95 text-rose-300 border border-rose-500/80 text-[11px] flex items-center gap-1"
                   >
-                    {f.text}
+                    <span className="text-[10px] text-rose-400 font-sans font-medium">피격</span>
+                    <span>{f.text}</span>
                   </div>
                 ))}
             </div>
 
+            {/* 우측 상공: 플레이어가 적에게 입힌 데미지 (적의 몸통/머리를 덮지 않고 우측 상단 하늘 빈 공간에 선명히 표기!) */}
+            <div className="flex flex-col items-end gap-1">
+              {floatingTexts
+                .filter((f) => f.target === 'enemy')
+                .map((f) => {
+                  if (f.type === 'immune') {
+                    return (
+                      <div
+                        key={f.id}
+                        className="font-black font-mono animate-bounce px-2.5 py-0.5 rounded-md shadow-2xl bg-indigo-950/95 text-cyan-200 border-2 border-cyan-400 text-xs sm:text-sm flex items-center gap-1 shadow-cyan-500/40"
+                      >
+                        <span>🛡️</span>
+                        <span>IMMUNE! (공격 무효)</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      key={f.id}
+                      className={`font-black font-mono animate-bounce px-2.5 py-0.5 rounded-lg shadow-xl drop-shadow-md transition-all ${
+                        f.isCrit
+                          ? 'bg-amber-400 text-black text-xs sm:text-sm border-2 border-amber-200 scale-110 shadow-amber-500/50'
+                          : 'bg-rose-600 text-white text-xs border border-rose-400 shadow-rose-600/50'
+                      }`}
+                    >
+                      {f.text}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* 등반자 (좌측) */}
+          <div className="relative flex flex-col items-center">
             {/* 등반자 픽셀 스프라이트 (무기별 외형 및 고유 공격 모션 적용) */}
             <HeroPixelSprite
               isAttacking={activeAttacker === 'player'}
@@ -374,27 +427,27 @@ export function BattleView({
             )}
           </div>
 
-          {/* 몬스터 (우측) */}
+          {/* 몬스터 (우측) - 데미지 텍스트가 완전히 상공으로 분리되어 몬스터 본체의 모습이 100% 훤히 보임 */}
           <div className="relative flex flex-col items-center">
-            {/* 몬스터 피격 데미지 플로팅 텍스트 */}
-            <div className="absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center gap-1 z-30 whitespace-nowrap">
-              {floatingTexts
-                .filter((f) => f.target === 'enemy')
-                .map((f) => (
-                  <div
-                    key={f.id}
-                    className={`text-xs font-black font-mono animate-bounce px-2 py-0.5 rounded shadow-lg ${
-                      f.isCrit
-                        ? 'bg-amber-400 text-black text-sm border-2 border-amber-300 font-black'
-                        : 'bg-rose-600 text-white font-black'
-                    }`}
-                  >
-                    {f.text}
-                  </div>
-                ))}
-            </div>
+            {/* 특수 패턴 1: 철벽 무적 결계 시각 효과 (빛나는 푸른 쉴드 돔) */}
+            {monster.isImmune && (
+              <div className="absolute -inset-2 rounded-full border-2 border-cyan-400/80 bg-cyan-400/15 animate-pulse pointer-events-none z-10 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.6)]">
+                <span className="absolute -top-4 text-[9px] font-black bg-cyan-950 text-cyan-200 px-1.5 py-0.2 rounded border border-cyan-400 shadow">
+                  🛡️ 무적 결계
+                </span>
+              </div>
+            )}
 
-            {/* 몬스터 픽셀 스프라이트 */}
+            {/* 특수 패턴 2: 파멸의 일격 충전 중 시각 효과 (붉은 살기 파동) */}
+            {monster.isCharging && (
+              <div className="absolute -inset-2 rounded-full border-2 border-rose-500/90 bg-rose-500/20 animate-ping pointer-events-none z-10 flex items-center justify-center">
+                <span className="absolute -top-4 text-[9px] font-black bg-rose-950 text-rose-200 px-1.5 py-0.2 rounded border border-rose-500 shadow">
+                  ⚠️ 파멸 일격 충전!
+                </span>
+              </div>
+            )}
+
+            {/* 몬스터 픽셀 스프라이트 (온전히 깨끗하게 노출) */}
             <MonsterPixelSprite monster={monster} isAttacking={activeAttacker === 'enemy'} />
             {/* 발밑 지면 그림자 */}
             <div className="w-16 h-2 rounded-full bg-black/60 blur-[2px] -mt-1" />

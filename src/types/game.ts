@@ -69,6 +69,13 @@ export interface Monster {
   isBoss: boolean;
   monsterType: 'slime' | 'golem' | 'beast' | 'boss' | 'knight';
   bossTraits?: BossTrait[];
+  // 2회차 이상 보스 특수 패턴 (무적 결계, 강력한 공격 충전)
+  specialPattern?: 'barrier' | 'charge' | 'all';
+  isImmune?: boolean; // 피해 무효화 상태 (공격이 통하지 않음)
+  immuneTurns?: number; // 남은 무적 턴 수
+  isCharging?: boolean; // 강력한 공격 준비 중 여부
+  chargeTurns?: number; // 충전 상태
+  patternNotice?: string; // 실시간 패턴 상태 알림 문구
 }
 
 export interface CombatLog {
@@ -84,5 +91,5 @@ export interface FloatingText {
   text: string;
   target: 'player' | 'enemy';
   isCrit?: boolean;
-  type?: 'damage' | 'heal' | 'advantage' | 'disadvantage';
+  type?: 'damage' | 'heal' | 'advantage' | 'disadvantage' | 'immune';
 }

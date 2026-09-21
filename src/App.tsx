@@ -17,6 +17,7 @@ import {
   getEnemyDamageMultiplier,
   getEnhanceCost,
   getEnhanceSuccessRate,
+  getEnhanceDestructionRate,
   calculateEnhancedStats,
 } from './utils/constants';
 import { loadGame, saveGame, GameSaveData } from './utils/storage';
@@ -34,6 +35,7 @@ export default function App() {
   const [saveData] = useState<GameSaveData>(() => loadGame());
   const [currentTowerId, setCurrentTowerId] = useState<number>(saveData.currentTowerId);
   const [currentFloor, setCurrentFloor] = useState<number>(saveData.currentFloor);
+  const [towerCycle, setTowerCycle] = useState<number>(saveData.towerCycle || 1);
   const [player, setPlayer] = useState<PlayerStats>(saveData.player);
   const [battleSpeed, setBattleSpeed] = useState<number>(saveData.settings.battleSpeed || 1.5);
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -41,12 +43,13 @@ export default function App() {
 
   // 2. 전투 상태
   const [monster, setMonster] = useState<Monster>(() =>
-    createMonsterForFloor(saveData.currentTowerId, saveData.currentFloor)
+    createMonsterForFloor(saveData.currentTowerId, saveData.currentFloor, saveData.towerCycle || 1)
   );
+  const bossTurnCountRef = useRef<number>(0);
   const [combatLogs, setCombatLogs] = useState<CombatLog[]>([
     {
       id: 'init_log',
-      text: `[시스템] 제 ${saveData.currentTowerId}탑 ${saveData.currentFloor}층 등반을 시작합니다.`,
+      text: `[시스템] 제 ${saveData.currentTowerId}탑 ${saveData.currentFloor}층 등반을 시작합니다. (제 ${saveData.towerCycle || 1}회차)`,
       type: 'system',
       timestamp: Date.now(),
     },
@@ -63,6 +66,7 @@ export default function App() {
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [isTowerListOpen, setIsTowerListOpen] = useState<boolean>(false);
   const [isCombatLogsOpen, setIsCombatLogsOpen] = useState<boolean>(false);
+  const [cycleClearNotice, setCycleClearNotice] = useState<number | null>(null);
 
   // 현재 탑 정보
   const currentTower = useMemo(
@@ -117,6 +121,7 @@ export default function App() {
     saveGame({
       currentTowerId,
       currentFloor,
+      towerCycle,
       player,
       settings: {
         battleSpeed,
@@ -126,7 +131,7 @@ export default function App() {
       highestTowerId: currentTowerId,
       highestFloor: currentFloor,
     });
-  }, [currentTowerId, currentFloor, player, battleSpeed]);
+  }, [currentTowerId, currentFloor, towerCycle, player, battleSpeed]);
 
   // 플로팅 텍스트 자동 소멸 (전투 속도에 맞춰 신속하게 페이드아웃)
   useEffect(() => {
@@ -138,7 +143,12 @@ export default function App() {
   }, [floatingTexts, battleSpeed]);
 
   const pushFloating = useCallback(
-    (text: string, target: 'player' | 'enemy', isCrit = false, type: 'damage' | 'heal' | 'advantage' | 'disadvantage' = 'damage') => {
+    (
+      text: string,
+      target: 'player' | 'enemy',
+      isCrit = false,
+      type: 'damage' | 'heal' | 'advantage' | 'disadvantage' | 'immune' = 'damage'
+    ) => {
       setFloatingTexts((prev) => [
         ...prev.slice(-3),
         {
@@ -223,6 +233,19 @@ export default function App() {
           setActiveAttacker(null);
         }, attackAnimDuration);
 
+        // ★ 보스 특수 패턴: 무적 결계 상태 확인 (공격이 통하지 않음)
+        if (monster.isImmune) {
+          sounds.playEnemyHit();
+          pushFloating('IMMUNE!', 'enemy', false, 'immune');
+          pushLog(
+            `[보스 특수패턴] ${monster.name}의 철벽 결계가 공격을 튕겨냈습니다! (피해 0)`,
+            'system'
+          );
+          turnRef.current = 'enemy';
+          busyRef.current = false;
+          return;
+        }
+
         const elementMultiplier = getPlayerDamageMultiplier(advantage);
         // 수문장 특성 2: 치명타 불가
         const isNoCrit = monster.bossTraits?.includes('no-crit') ?? false;
@@ -289,21 +312,36 @@ export default function App() {
             return updated;
           });
 
-          // 100층 도달 시 다음 탑 1층으로 승급
+          // 100층 도달 시 다음 탑 1층으로 승급 / 10탑 100층 클리어 시 다음 회차로 루프!
           let nextSpawnTower = currentTowerId;
           let nextSpawnFloor = currentFloor + 1;
+          let nextCycle = towerCycle;
 
           if (currentFloor >= 100) {
-            nextSpawnTower = currentTowerId < 10 ? currentTowerId + 1 : 1;
-            nextSpawnFloor = 1;
-            setCurrentTowerId(nextSpawnTower);
-            setCurrentFloor(1);
-            pushLog(`★★★ 제 ${currentTowerId}탑 100층 클리어! 제 ${nextSpawnTower}탑 1층으로 이동합니다! ★★★`, 'victory');
+            if (currentTowerId === 10) {
+              // 10개 탑 제패 완료 -> 제 2회차/3회차 등반 시작!
+              nextCycle = towerCycle + 1;
+              setTowerCycle(nextCycle);
+              nextSpawnTower = 1;
+              nextSpawnFloor = 1;
+              setCurrentTowerId(1);
+              setCurrentFloor(1);
+              setCycleClearNotice(nextCycle);
+              pushLog(`★★★★★ [대위업 달성] 10대 탑 완전 제패! 제 ${nextCycle}회차가 시작됩니다! ★★★★★`, 'victory');
+              pushLog(`[경고] 제 ${nextCycle}회차부터 적의 능력치가 대폭 증가하며 보스들이 특수 패턴(무적/일격)을 구사합니다!`, 'system');
+            } else {
+              nextSpawnTower = currentTowerId + 1;
+              nextSpawnFloor = 1;
+              setCurrentTowerId(nextSpawnTower);
+              setCurrentFloor(1);
+              pushLog(`★★★ 제 ${currentTowerId}탑 100층 클리어! 제 ${nextSpawnTower}탑 1층으로 이동합니다! ★★★`, 'victory');
+            }
           } else {
             setCurrentFloor(nextSpawnFloor);
           }
 
-          const spawnedMonster = createMonsterForFloor(nextSpawnTower, nextSpawnFloor);
+          const spawnedMonster = createMonsterForFloor(nextSpawnTower, nextSpawnFloor, nextCycle);
+          bossTurnCountRef.current = 0;
           setMonster(spawnedMonster);
 
           // 수문장 특성 3: 먼저 공격한다 (선제공격)
@@ -328,10 +366,108 @@ export default function App() {
         const monsterElementMult = getEnemyDamageMultiplier(advantage);
         const isMonsterCrit = Math.random() < 0.05;
         const monsterCritMult = isMonsterCrit ? 2.0 : 1.0;
-
         const monsterRawDmg = monster.atk * (0.85 + Math.random() * 0.3) * monsterElementMult * monsterCritMult;
-        const monsterDamage = Math.max(1, Math.round(monsterRawDmg));
 
+        // ★ 보스 특수 패턴 처리 (2회차 이상 보스)
+        if (monster.isBoss && monster.specialPattern) {
+          bossTurnCountRef.current += 1;
+
+          // (A) 무적 결계 턴 감소 처리
+          if (monster.isImmune) {
+            const rem = (monster.immuneTurns ?? 1) - 1;
+            if (rem <= 0) {
+              setMonster((prev) => ({ ...prev, isImmune: false, immuneTurns: 0, patternNotice: undefined }));
+              pushLog(`[결계 해제] ${monster.name}의 무적 결계가 소멸했습니다! 지금 타격 가능!`, 'system');
+            } else {
+              setMonster((prev) => ({
+                ...prev,
+                immuneTurns: rem,
+                patternNotice: `🛡️ [무적 결계 작동 중: ${rem}턴 남음]`,
+              }));
+            }
+          }
+
+          // (B) 파멸의 일격 차징 완료 -> 3.5배 강력한 일격 발동!
+          if (monster.isCharging) {
+            const heavyDamage = Math.max(1, Math.round(monsterRawDmg * 3.5));
+            sounds.playCritHit();
+            pushFloating(`💥파멸강타! -${heavyDamage}`, 'player', true, 'damage');
+            pushLog(
+              `[보스 특수패턴] ${monster.name}의 파멸적인 일격이 작렬했습니다! 치명타 피해(-${heavyDamage})!`,
+              'enemy-crit',
+              heavyDamage
+            );
+            setMonster((prev) => ({ ...prev, isCharging: false, chargeTurns: 0, patternNotice: undefined }));
+
+            const nextPlayerHp = player.currentHp - heavyDamage;
+            if (nextPlayerHp <= 0) {
+              sounds.playDefeat();
+              const fallbackFloor = Math.max(1, currentFloor - 10);
+              pushLog(`[패배] 10개 층 후퇴하여 ${fallbackFloor}층으로 돌아갑니다.`, 'defeat');
+              setCurrentFloor(fallbackFloor);
+              const fallbackMonster = createMonsterForFloor(currentTowerId, fallbackFloor, towerCycle);
+              bossTurnCountRef.current = 0;
+              setMonster(fallbackMonster);
+              setPlayer((prev) => ({ ...prev, currentHp: totalHp }));
+              turnRef.current = fallbackMonster.bossTraits?.includes('first-strike') ? 'enemy' : 'player';
+            } else {
+              setPlayer((prev) => ({ ...prev, currentHp: nextPlayerHp }));
+              turnRef.current = 'player';
+            }
+            busyRef.current = false;
+            return;
+          }
+
+          // (C) 새로운 특수 패턴 발동 조건 검사 (현재 무적도 차징도 아닐 때)
+          if (!monster.isImmune && !monster.isCharging) {
+            const pattern = monster.specialPattern;
+            const isChargeTurn =
+              pattern === 'charge'
+                ? bossTurnCountRef.current % 4 === 0
+                : pattern === 'all'
+                ? bossTurnCountRef.current % 6 === 3
+                : false;
+            const isBarrierTurn =
+              pattern === 'barrier'
+                ? bossTurnCountRef.current % 4 === 0
+                : pattern === 'all'
+                ? bossTurnCountRef.current % 6 === 0
+                : false;
+
+            if (isChargeTurn) {
+              // 이번 턴은 공격 대신 일격 충전 시전!
+              setMonster((prev) => ({
+                ...prev,
+                isCharging: true,
+                patternNotice: '⚠️ [파멸의 일격 충전 중! 다음 턴 3.5배 강타 주의]',
+              }));
+              pushFloating('⚠️일격 충전!', 'enemy', false, 'advantage');
+              pushLog(
+                `[보스 특수패턴] ${monster.name}이(가) 살기를 모으며 파멸의 일격을 충전합니다! 다음 턴 주의!`,
+                'system'
+              );
+              turnRef.current = 'player';
+              busyRef.current = false;
+              return;
+            } else if (isBarrierTurn) {
+              // 무적 결계 전개! 2턴간 공격 무효!
+              setMonster((prev) => ({
+                ...prev,
+                isImmune: true,
+                immuneTurns: 2,
+                patternNotice: '🛡️ [무적 결계 작동 중: 2턴간 피해 무효]',
+              }));
+              pushFloating('🛡️무적 결계 전개!', 'enemy', false, 'advantage');
+              pushLog(
+                `[보스 특수패턴] ${monster.name}이(가) 철벽 무적 결계를 전개했습니다! (2턴간 피해 무효)`,
+                'system'
+              );
+            }
+          }
+        }
+
+        // 일반 몬스터 반격
+        const monsterDamage = Math.max(1, Math.round(monsterRawDmg));
         sounds.playEnemyHit();
         pushFloating(`-${monsterDamage}`, 'player', isMonsterCrit, 'damage');
 
@@ -356,7 +492,8 @@ export default function App() {
           pushLog(`[패배] 10개 층 후퇴하여 ${fallbackFloor}층으로 돌아갑니다.`, 'defeat');
 
           setCurrentFloor(fallbackFloor);
-          const fallbackMonster = createMonsterForFloor(currentTowerId, fallbackFloor);
+          const fallbackMonster = createMonsterForFloor(currentTowerId, fallbackFloor, towerCycle);
+          bossTurnCountRef.current = 0;
           setMonster(fallbackMonster);
           setPlayer((prev) => ({ ...prev, currentHp: totalHp }));
 
@@ -609,6 +746,9 @@ export default function App() {
         const updatedItem: GameItem = {
           ...itemToEnhance,
           ...updatedStats,
+          baseAtk: itemToEnhance.baseAtk ?? itemToEnhance.atk,
+          baseHp: itemToEnhance.baseHp ?? itemToEnhance.hp,
+          baseCritRate: itemToEnhance.baseCritRate ?? itemToEnhance.critRate,
           enhanceLevel: nextLevel,
         };
 
@@ -652,15 +792,27 @@ export default function App() {
         pushLog(`[강화 성공] ${itemToEnhance.name} +${nextLevel}강 달성!`, 'victory');
         return { success: true, newLevel: nextLevel, destroyed: false };
       } else {
-        // 강화 실패: 무기는 파괴, 기타 부위는 장비 보존
-        const isWeapon = itemToEnhance.slot === 'weapon';
+        // 강화 실패: 무기뿐만 아니라 갑옷/투구/각반/신발/반지 등 모든 장비도 파괴 확률에 따라 파괴 (최대 80% 제한)
+        const destructionRate = getEnhanceDestructionRate(currentLvl);
+        const isDestroyed = Math.random() < destructionRate;
 
-        if (isWeapon) {
+        if (isDestroyed) {
           setPlayer((prev) => {
             const newInv = prev.inventory.filter((it) => it.id !== itemToEnhance.id);
             let newEquipped = { ...prev.equipped };
-            if (newEquipped.weapon?.id === itemToEnhance.id) {
-              newEquipped.weapon = null;
+            const slotKeys: (keyof EquippedSlots)[] = [
+              'weapon',
+              'helmet',
+              'armor',
+              'leggings',
+              'boots',
+              'ring1',
+              'ring2',
+            ];
+            for (const k of slotKeys) {
+              if (newEquipped[k]?.id === itemToEnhance.id) {
+                newEquipped[k] = null;
+              }
             }
             return {
               ...prev,
@@ -671,15 +823,34 @@ export default function App() {
           });
 
           sounds.playWeaponDestroy();
-          pushLog(`[무기 파괴] 💥 강화 실패로 '${itemToEnhance.name}'이(가) 산산조각나 영구 파괴되었습니다!`, 'defeat');
+          const slotKorean =
+            itemToEnhance.slot === 'weapon'
+              ? '무기'
+              : itemToEnhance.slot === 'armor'
+              ? '갑옷'
+              : itemToEnhance.slot === 'helmet'
+              ? '투구'
+              : itemToEnhance.slot === 'leggings'
+              ? '각반'
+              : itemToEnhance.slot === 'boots'
+              ? '신발'
+              : '반지';
+          pushLog(
+            `[장비 파괴] 💥 강화 실패로 ${slotKorean} '${itemToEnhance.name}'이(가) 산산조각나 영구 파괴되었습니다! (파괴 확률: ${Math.round(destructionRate * 100)}%)`,
+            'defeat'
+          );
           return { success: false, newLevel: currentLvl, destroyed: true };
         } else {
+          // 다행히 파괴되지 않고 보존됨 (파괴 확률 최대 80% 상한선 덕분에 최소 20% 보존 보장)
           setPlayer((prev) => ({
             ...prev,
             gold: Math.max(0, prev.gold - cost),
           }));
           sounds.playEnhanceFail();
-          pushLog(`[강화 실패] ${itemToEnhance.name} 강화 실패 (${cost}G 소모, 장비 보존)`, 'defeat');
+          pushLog(
+            `[강화 실패] ${itemToEnhance.name} 강화 실패 (${cost.toLocaleString()}G 소모, 다행히 장비가 파괴되지 않고 보존되었습니다!)`,
+            'normal'
+          );
           return { success: false, newLevel: currentLvl, destroyed: false };
         }
       }
@@ -726,6 +897,7 @@ export default function App() {
           <BattleView
             currentTower={currentTower}
             currentFloor={currentFloor}
+            towerCycle={towerCycle}
             player={player}
             totalAtk={totalAtk}
             totalHp={totalHp}
@@ -796,6 +968,7 @@ export default function App() {
         onClose={() => setIsTowerListOpen(false)}
         currentTowerId={currentTowerId}
         currentFloor={currentFloor}
+        towerCycle={towerCycle}
       />
 
       {/* 실시간 전투 피드 모달 */}
@@ -808,6 +981,57 @@ export default function App() {
 
       {/* 속성 상성 및 전투 가이드 모달 */}
       <ElementGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
+
+      {/* 10개 탑 제패 및 신규 회차 시작 축하 모달 */}
+      {cycleClearNotice !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border-2 border-purple-500 rounded-2xl p-5 max-w-sm w-full shadow-[0_0_40px_rgba(168,85,247,0.5)] flex flex-col items-center text-center gap-3 animate-in fade-in zoom-in duration-200">
+            <div className="w-16 h-16 rounded-full bg-purple-950 border-2 border-purple-400 flex items-center justify-center text-3xl shadow-lg animate-bounce">
+              👑
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-mono font-bold text-purple-400 uppercase tracking-wider">
+                Cycle Ascension
+              </span>
+              <h2 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-300 via-pink-200 to-amber-200">
+                10대 탑 완전 제패!
+              </h2>
+              <div className="text-sm font-bold text-amber-300 mt-1">
+                제 {cycleClearNotice}회차 (순환 {cycleClearNotice}) 시작
+              </div>
+            </div>
+
+            <div className="bg-zinc-950/80 border border-zinc-800 rounded-xl p-3 text-xs text-zinc-300 flex flex-col gap-2 text-left w-full">
+              <div className="flex items-start gap-2">
+                <span className="text-purple-400 font-bold">▶</span>
+                <span>
+                  10개의 모든 탑 100층을 제패하여 <strong className="text-purple-200">제 1탑 1층으로 귀환</strong>했습니다.
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-rose-400 font-bold">▶</span>
+                <span>
+                  적의 공격력과 체력이 <strong className="text-rose-300">{cycleClearNotice * 1.5}배</strong>로 대폭 증가합니다!
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-cyan-400 font-bold">▶</span>
+                <span>
+                  보스들이 <strong className="text-cyan-300">철벽 무적 결계</strong>(공격 무효화) 및 <strong className="text-amber-300">파멸의 일격</strong>(3.5배 강타) 특수 패턴을 구사합니다!
+                </span>
+              </div>
+            </div>
+
+            <button
+              id="cycle-clear-confirm-btn"
+              onClick={() => setCycleClearNotice(null)}
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-purple-600/30 transition cursor-pointer"
+            >
+              제 {cycleClearNotice}회차 도전 시작!
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

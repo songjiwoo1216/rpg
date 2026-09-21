@@ -1,10 +1,12 @@
-import { PlayerStats, EquippedSlots } from '../types/game';
+import { PlayerStats, EquippedSlots, GameItem } from '../types/game';
+import { calculateEnhancedStats } from './constants';
 
 const SAVE_KEY = 'tower_idle_rpg_save_v2';
 
 export interface GameSaveData {
   currentTowerId: number;
   currentFloor: number;
+  towerCycle: number; // 회차 (10대 탑 제패 시 다음 회차로 루프, 기본 1)
   player: PlayerStats;
   settings: {
     battleSpeed: number;
@@ -23,11 +25,15 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     rarity: '일반',
     element: '물',
     level: 1,
-    atk: 10,
+    atk: 14,
     hp: 0,
-    critRate: 0,
+    critRate: 1,
     price: 50,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 14,
+    baseHp: 0,
+    baseCritRate: 1,
   },
   helmet: {
     id: 'starter_helmet',
@@ -36,11 +42,15 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     rarity: '일반',
     element: '나무',
     level: 1,
-    atk: 2,
-    hp: 25,
+    atk: 4,
+    hp: 45,
     critRate: 0,
     price: 40,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 4,
+    baseHp: 45,
+    baseCritRate: 0,
   },
   armor: {
     id: 'starter_armor',
@@ -50,10 +60,14 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     element: '나무',
     level: 1,
     atk: 0,
-    hp: 50,
+    hp: 80,
     critRate: 0,
     price: 50,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 0,
+    baseHp: 80,
+    baseCritRate: 0,
   },
   leggings: {
     id: 'starter_leggings',
@@ -63,10 +77,14 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     element: '땅',
     level: 1,
     atk: 0,
-    hp: 30,
+    hp: 60,
     critRate: 0,
     price: 35,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 0,
+    baseHp: 60,
+    baseCritRate: 0,
   },
   boots: {
     id: 'starter_boots',
@@ -75,11 +93,15 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     rarity: '일반',
     element: '쇠',
     level: 1,
-    atk: 3,
-    hp: 15,
+    atk: 5,
+    hp: 40,
     critRate: 1,
     price: 35,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 5,
+    baseHp: 40,
+    baseCritRate: 1,
   },
   ring1: {
     id: 'starter_ring1',
@@ -88,11 +110,15 @@ export const INITIAL_EQUIPPED: EquippedSlots = {
     rarity: '고급',
     element: '불',
     level: 1,
-    atk: 5,
-    hp: 15,
-    critRate: 3,
+    atk: 8,
+    hp: 35,
+    critRate: 4,
     price: 120,
     locked: true,
+    enhanceLevel: 0,
+    baseAtk: 8,
+    baseHp: 35,
+    baseCritRate: 4,
   },
   ring2: null,
 };
@@ -116,9 +142,13 @@ export const INITIAL_PLAYER: PlayerStats = {
       level: 1,
       atk: 14,
       hp: 0,
-      critRate: 1,
+      critRate: 2,
       price: 80,
       locked: false,
+      enhanceLevel: 0,
+      baseAtk: 14,
+      baseHp: 0,
+      baseCritRate: 2,
     },
     {
       id: 'starter_second_ring',
@@ -127,11 +157,15 @@ export const INITIAL_PLAYER: PlayerStats = {
       rarity: '고급',
       element: '나무',
       level: 1,
-      atk: 4,
-      hp: 20,
-      critRate: 2,
+      atk: 7,
+      hp: 40,
+      critRate: 3,
       price: 130,
       locked: false,
+      enhanceLevel: 0,
+      baseAtk: 7,
+      baseHp: 40,
+      baseCritRate: 3,
     },
   ],
   maxInventory: 36,
@@ -140,6 +174,7 @@ export const INITIAL_PLAYER: PlayerStats = {
 export const INITIAL_SAVE: GameSaveData = {
   currentTowerId: 1,
   currentFloor: 1,
+  towerCycle: 1,
   player: INITIAL_PLAYER,
   settings: {
     battleSpeed: 1.5,
@@ -150,22 +185,67 @@ export const INITIAL_SAVE: GameSaveData = {
   highestFloor: 1,
 };
 
+function sanitizeItem(item: any): GameItem | null {
+  if (!item || typeof item !== 'object') return null;
+  const enhanceLevel = item.enhanceLevel || 0;
+  let baseAtk = item.baseAtk ?? item.atk;
+  let baseHp = item.baseHp ?? item.hp;
+  let baseCritRate = item.baseCritRate ?? item.critRate;
+
+  // 혹시 강화 수치가 있는데 baseAtk이 비정상적으로 누적되어 있었던 경우 역산 보정
+  if (enhanceLevel > 0 && item.baseAtk === undefined) {
+    baseAtk = Math.max(0, Math.round(item.atk / (1 + 0.04 * enhanceLevel)));
+    baseHp = Math.max(0, Math.round(item.hp / (1 + 0.04 * enhanceLevel)));
+  }
+
+  const enhanced = calculateEnhancedStats(
+    { ...item, baseAtk, baseHp, baseCritRate, enhanceLevel },
+    enhanceLevel
+  );
+
+  return {
+    ...item,
+    enhanceLevel,
+    baseAtk,
+    baseHp,
+    baseCritRate,
+    atk: enhanced.atk,
+    hp: enhanced.hp,
+    critRate: enhanced.critRate,
+  };
+}
+
 export function loadGame(): GameSaveData {
   if (typeof window === 'undefined') return INITIAL_SAVE;
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return INITIAL_SAVE;
     const parsed = JSON.parse(raw);
+
+    const equippedRaw = parsed.player?.equipped || {};
+    const sanitizedEquipped: EquippedSlots = {
+      weapon: sanitizeItem(equippedRaw.weapon),
+      helmet: sanitizeItem(equippedRaw.helmet),
+      armor: sanitizeItem(equippedRaw.armor),
+      leggings: sanitizeItem(equippedRaw.leggings),
+      boots: sanitizeItem(equippedRaw.boots),
+      ring1: sanitizeItem(equippedRaw.ring1),
+      ring2: sanitizeItem(equippedRaw.ring2),
+    };
+
+    const sanitizedInv = (parsed.player?.inventory || [])
+      .map(sanitizeItem)
+      .filter((it: GameItem | null): it is GameItem => it !== null);
+
     return {
       ...INITIAL_SAVE,
       ...parsed,
+      towerCycle: typeof parsed.towerCycle === 'number' && parsed.towerCycle >= 1 ? parsed.towerCycle : 1,
       player: {
         ...INITIAL_PLAYER,
         ...parsed.player,
-        equipped: {
-          ...INITIAL_EQUIPPED,
-          ...parsed.player?.equipped,
-        },
+        equipped: sanitizedEquipped,
+        inventory: sanitizedInv,
       },
       settings: {
         ...INITIAL_SAVE.settings,

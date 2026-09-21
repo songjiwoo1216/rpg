@@ -5,6 +5,7 @@ import {
   RARITY_CONFIG,
   getEnhanceCost,
   getEnhanceSuccessRate,
+  getEnhanceDestructionRate,
   calculateEnhancedStats,
 } from '../utils/constants';
 import { ElementBadge } from './ElementBadge';
@@ -68,6 +69,7 @@ export function ItemModal({
   const isMaxEnhanced = enhanceLvl >= 10;
   const enhanceCost = getEnhanceCost(item);
   const successRate = getEnhanceSuccessRate(enhanceLvl);
+  const destructionRate = getEnhanceDestructionRate(enhanceLvl);
   const canAffordEnhance = playerGold >= enhanceCost;
   const nextStats = !isMaxEnhanced ? calculateEnhancedStats(item, enhanceLvl + 1) : null;
 
@@ -82,9 +84,10 @@ export function ItemModal({
     } else {
       if (result.destroyed) {
         setIsDestroyed(true);
+        const slotName = slotKorean[item.slot] || '장비';
         setEnhanceFeedback({
           success: false,
-          text: `💥 강화 실패! 무기가 산산조각나 파괴되었습니다!`,
+          text: `💥 강화 실패! ${slotName} '${item.name}'이(가) 산산조각나 파괴되었습니다!`,
         });
         // 1.2초 후 모달 닫기
         if (destroyTimerRef.current) clearTimeout(destroyTimerRef.current);
@@ -94,7 +97,7 @@ export function ItemModal({
       } else {
         setEnhanceFeedback({
           success: false,
-          text: `강화 실패! 강화 수치가 유지되었습니다.`,
+          text: `🛡️ 강화 실패! 다행히 장비가 파괴되지 않고 보존되었습니다.`,
         });
       }
     }
@@ -256,6 +259,22 @@ export function ItemModal({
                 </span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-zinc-400">실패 시 파괴 확률</span>
+                <span className={`font-mono font-bold ${destructionRate > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {Math.round(destructionRate * 100)}%
+                  {destructionRate > 0 && <span className="text-[9px] text-zinc-500 ml-1">(최대 80% 제한)</span>}
+                  {destructionRate === 0 && <span className="text-[9px] text-emerald-500 ml-1">(안전 강화)</span>}
+                </span>
+              </div>
+              {destructionRate > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">실패 시 보존 확률</span>
+                  <span className="font-mono font-bold text-sky-400">
+                    {Math.round((1 - destructionRate) * 100)}%
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
                 <span className="text-zinc-400">필요 골드</span>
                 <span className={`font-mono font-bold flex items-center gap-1 ${canAffordEnhance ? 'text-amber-400' : 'text-rose-400'}`}>
                   <Coins className="w-3 h-3" />
@@ -274,11 +293,20 @@ export function ItemModal({
             </div>
           )}
 
-          {/* 무기 강화 실패 시 영구 파괴 경고 배너 */}
-          {item.slot === 'weapon' && !isMaxEnhanced && !isDestroyed && (
+          {/* 모든 장비 강화 실패 시 영구 파괴 경고 배너 */}
+          {destructionRate > 0 && !isMaxEnhanced && !isDestroyed && (
             <div className="mt-1.5 flex items-center gap-1.5 p-1.5 rounded-lg bg-rose-950/70 border border-rose-600/60 text-rose-300 text-[10px] font-bold">
               <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <span>무기는 강화 실패 시 즉시 파괴되어 영구 소멸합니다!</span>
+              <span>
+                강화 실패 시 {slotKorean[item.slot] || '장비'}가 영구 파괴될 수 있습니다! (파괴 확률 최대 80% 제한)
+              </span>
+            </div>
+          )}
+
+          {destructionRate === 0 && !isMaxEnhanced && !isDestroyed && (
+            <div className="mt-1.5 flex items-center gap-1.5 p-1.5 rounded-lg bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-[10px] font-bold">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>0~2강 구간은 실패해도 장비가 파괴되지 않는 안전 강화 구간입니다.</span>
             </div>
           )}
 
@@ -307,7 +335,7 @@ export function ItemModal({
               disabled={!canAffordEnhance}
               onClick={handleEnhanceClick}
               className={`mt-2 w-full py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition shadow cursor-pointer disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed ${
-                item.slot === 'weapon'
+                destructionRate > 0
                   ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50'
                   : 'bg-amber-600 hover:bg-amber-500 text-black'
               }`}
@@ -315,7 +343,8 @@ export function ItemModal({
               <Zap className="w-3.5 h-3.5" />
               <span>
                 +{enhanceLvl + 1}강 강화 시도 ({enhanceCost.toLocaleString()}G)
-                {item.slot === 'weapon' && ' [실패 시 파괴 위험]'}
+                {destructionRate > 0 && ` [파괴 위험 ${Math.round(destructionRate * 100)}%]`}
+                {destructionRate === 0 && ' [안전]'}
               </span>
             </button>
           )}

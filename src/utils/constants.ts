@@ -163,12 +163,12 @@ export const TOWERS: TowerInfo[] = [
 ];
 
 export const RARITY_CONFIG: Record<ItemRarity, { label: string; color: string; border: string; bg: string; dropWeight: number; statMultiplier: number }> = {
-  일반: { label: '일반', color: 'text-zinc-300', border: 'border-zinc-700', bg: 'bg-zinc-800/40', dropWeight: 50, statMultiplier: 1.0 },
-  고급: { label: '고급', color: 'text-green-400', border: 'border-green-600/50', bg: 'bg-green-950/30', dropWeight: 30, statMultiplier: 1.3 },
-  희귀: { label: '희귀', color: 'text-blue-400', border: 'border-blue-600/50', bg: 'bg-blue-950/30', dropWeight: 14, statMultiplier: 1.7 },
-  영웅: { label: '영웅', color: 'text-purple-400', border: 'border-purple-600/60', bg: 'bg-purple-950/30', dropWeight: 5, statMultiplier: 2.3 },
-  전설: { label: '전설', color: 'text-amber-400', border: 'border-amber-500/70', bg: 'bg-amber-950/30', dropWeight: 0.9, statMultiplier: 3.2 },
-  신화: { label: '신화', color: 'text-rose-400', border: 'border-rose-500/80', bg: 'bg-rose-950/40', dropWeight: 0.1, statMultiplier: 4.5 },
+  일반: { label: '일반', color: 'text-zinc-300', border: 'border-zinc-700', bg: 'bg-zinc-800/40', dropWeight: 50, statMultiplier: 1.00 },
+  고급: { label: '고급', color: 'text-green-400', border: 'border-green-600/50', bg: 'bg-green-950/30', dropWeight: 30, statMultiplier: 1.32 },
+  희귀: { label: '희귀', color: 'text-blue-400', border: 'border-blue-600/50', bg: 'bg-blue-950/30', dropWeight: 14, statMultiplier: 1.75 },
+  영웅: { label: '영웅', color: 'text-purple-400', border: 'border-purple-600/60', bg: 'bg-purple-950/30', dropWeight: 5, statMultiplier: 2.30 },
+  전설: { label: '전설', color: 'text-amber-400', border: 'border-amber-500/70', bg: 'bg-amber-950/30', dropWeight: 0.9, statMultiplier: 3.05 },
+  신화: { label: '신화', color: 'text-rose-400', border: 'border-rose-500/80', bg: 'bg-rose-950/40', dropWeight: 0.1, statMultiplier: 4.05 },
 };
 
 // 6가지 아이템 부위별 이름 데이터
@@ -247,6 +247,9 @@ export const ENHANCE_CONFIG = {
     신화: 8.0,
   } as Record<ItemRarity, number>,
   successRates: [1.0, 0.95, 0.90, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25], // 0강 -> 1강(100%), ... 9강 -> 10강(25%)
+  // 강화 실패 시 장비 파괴 확률 (무기/갑옷/방어구/장신구 전체 적용):
+  // 0~2강은 안전 강화(0%), 3강부터 점진 증가하되 최대 80%(0.80)로 제한하여 최소 20%는 항상 보존
+  destructionRates: [0, 0, 0, 0.20, 0.35, 0.50, 0.60, 0.70, 0.75, 0.80],
 };
 
 export function getEnhanceCost(item: GameItem): number {
@@ -262,17 +265,66 @@ export function getEnhanceSuccessRate(currentLevel: number): number {
   return ENHANCE_CONFIG.successRates[currentLevel] ?? 0.25;
 }
 
+/**
+ * 강화 실패 시 장비 파괴 확률 (최대 80% 상한 제한)
+ */
+export function getEnhanceDestructionRate(currentLevel: number): number {
+  if (currentLevel >= ENHANCE_CONFIG.maxLevel) return 0;
+  const rate = ENHANCE_CONFIG.destructionRates[currentLevel] ?? 0.80;
+  return Math.min(0.80, Math.max(0, rate));
+}
+
+export type MonsterArchetype =
+  | 'spirit'     // 정령 (신비한 바람으로 감싸짐)
+  | 'salamander' // 샐러맨더, 살라맨더, 바실리스크, 도마뱀
+  | 'slime'      // 슬라임, 물방울
+  | 'golem'      // 골렘, 거신, 타이탄
+  | 'beast'      // 사냥개, 쥐, 두더지, 늑대
+  | 'demon'      // 임프, 이프리트, 이그니스, 악마
+  | 'sea'        // 아귀, 크라켄, 나가, 해룡, 레비아탄
+  | 'fairy'      // 요정, 드라이어드
+  | 'treant'     // 덩굴손, 수호목, 엔트라
+  | 'insect'     // 사마귀, 전갈
+  | 'automaton'  // 기계병, 톱니, 경비병, 기사, 오토마톤, 메카트론, 아르마
+  | 'mage'       // 마도사, 리치, 글라시아
+  | 'dragon'     // 고룡, 불사조, 아그니, 실바누스, 용
+  | 'guardian';  // 가고일, 아누비스
+
+/**
+ * 몬스터의 이름에 따라 고유한 비주얼 아키타입(외형 분류) 결정
+ */
+export function getMonsterVisualArchetype(monsterName: string): MonsterArchetype {
+  const name = monsterName;
+  if (name.includes('정령')) return 'spirit';
+  if (name.includes('살라맨더') || name.includes('샐러맨더') || name.includes('바실리스크') || name.includes('도마뱀')) return 'salamander';
+  if (name.includes('슬라임') || name.includes('물방울')) return 'slime';
+  if (name.includes('아귀') || name.includes('크라켄') || name.includes('나가') || name.includes('해룡') || name.includes('레비아탄')) return 'sea';
+  if (name.includes('사마귀') || name.includes('전갈')) return 'insect';
+  if (name.includes('요정') || name.includes('드라이어드')) return 'fairy';
+  if (name.includes('덩굴손') || name.includes('수호목') || name.includes('엔트라')) return 'treant';
+  if (name.includes('골렘') || name.includes('거신') || name.includes('타이탄')) return 'golem';
+  if (name.includes('사냥개') || name.includes('쥐') || name.includes('두더지') || name.includes('늑대')) return 'beast';
+  if (name.includes('마도사') || name.includes('리치') || name.includes('글라시아')) return 'mage';
+  if (name.includes('불사조') || name.includes('고룡') || name.includes('아그니') || name.includes('실바누스')) return 'dragon';
+  if (name.includes('임프') || name.includes('이프리트') || name.includes('이그니스') || name.includes('악마')) return 'demon';
+  if (name.includes('가고일') || name.includes('아누비스')) return 'guardian';
+  if (name.includes('기계병') || name.includes('톱니') || name.includes('경비병') || name.includes('기사') || name.includes('오토마톤') || name.includes('아르마') || name.includes('메카트론')) return 'automaton';
+
+  return 'slime';
+}
+
 export function calculateEnhancedStats(item: GameItem, targetLevel: number) {
   const baseAtk = item.baseAtk ?? item.atk;
   const baseHp = item.baseHp ?? item.hp;
   const baseCrit = item.baseCritRate ?? item.critRate;
 
-  const atkBonus = Math.round(baseAtk * 0.12 * targetLevel + (baseAtk > 0 ? targetLevel * 2 : 0));
-  const hpBonus = Math.round(baseHp * 0.12 * targetLevel + (baseHp > 0 ? targetLevel * 8 : 0));
+  // 1강당 기본 수치의 4%씩 정직하게 증가 (10강 시 총 +40% 증가)
+  // '한 단계의 10강이 그 다음 등급 0강보다 약 5~6% 더 좋은 정도'로 황금 밸런스 유지
+  const atkBonus = baseAtk > 0 ? Math.max(targetLevel > 0 ? 1 : 0, Math.round(baseAtk * 0.04 * targetLevel)) : 0;
+  const hpBonus = baseHp > 0 ? Math.max(targetLevel > 0 ? 1 : 0, Math.round(baseHp * 0.04 * targetLevel)) : 0;
   let critBonus = 0;
-  if (targetLevel >= 10) critBonus = 3;
-  else if (targetLevel >= 7) critBonus = 2;
-  else if (targetLevel >= 4) critBonus = 1;
+  if (targetLevel >= 10) critBonus = 2;
+  else if (targetLevel >= 5) critBonus = 1;
 
   return {
     atk: baseAtk + atkBonus,
@@ -299,6 +351,27 @@ export const BOSS_TRAIT_INFO: Record<BossTrait, { name: string; desc: string; ic
     desc: '전투 조우 즉시 플레이어보다 먼저 공격합니다.',
     icon: '⚡',
     badgeColor: 'bg-indigo-950/80 border-indigo-500/60 text-indigo-300',
+  },
+};
+
+export const SPECIAL_PATTERN_INFO: Record<'barrier' | 'charge' | 'all', { name: string; desc: string; icon: string; badgeColor: string }> = {
+  barrier: {
+    name: '철벽 무적 결계',
+    desc: '주기적으로 결계를 발동하여 공격을 완전히 무효화(IMMUNE)합니다.',
+    icon: '🛡️',
+    badgeColor: 'bg-cyan-950/90 border-cyan-400/80 text-cyan-300',
+  },
+  charge: {
+    name: '파멸의 일격 충전',
+    desc: '기를 모아 다음 턴에 3.5배의 치명적 참격을 내리꽂습니다.',
+    icon: '⚡',
+    badgeColor: 'bg-rose-950/90 border-rose-500/80 text-rose-300',
+  },
+  all: {
+    name: '최종보스 절대 권능',
+    desc: '무적 결계와 파멸의 일격을 번갈아 시전하는 최종보스 고유 패턴입니다.',
+    icon: '👑',
+    badgeColor: 'bg-purple-950/90 border-purple-400/80 text-purple-200',
   },
 };
 
@@ -375,47 +448,44 @@ export function generateRandomItem(floor: number, towerId: number, playerLevel =
   }
 
   const mult = RARITY_CONFIG[rarity].statMultiplier;
-  const baseScale = Math.max(1, Math.floor(floorBonus * 1.5));
+  // 부위별 기본 수치 + 층수 비례 스케일링 (일관된 비례와 안정적인 티어 차이 보장)
+  const variance = 0.96 + Math.random() * 0.08; // ±4% 세부 개체값 편차
 
-  let atk = 0;
-  let hp = 0;
-  let critRate = 0;
+  let rawAtk = 0;
+  let rawHp = 0;
+  let rawCrit = 0;
 
   if (slot === 'weapon') {
-    atk = Math.round((baseScale * 3.5 + Math.floor(Math.random() * 8)) * mult);
-    if (Math.random() < 0.75) {
-      critRate = Math.round((1 + Math.random() * 3) * mult);
-    }
+    rawAtk = 14 + floorBonus * 3.2;
+    rawCrit = 2;
   } else if (slot === 'helmet') {
-    hp = Math.round((baseScale * 14 + Math.floor(Math.random() * 18)) * mult);
-    atk = Math.round((baseScale * 1.0 + Math.floor(Math.random() * 4)) * mult);
-    if (Math.random() < 0.4) {
-      critRate = Math.round((1 + Math.random() * 2) * mult);
-    }
+    rawHp = 45 + floorBonus * 12;
+    rawAtk = 4 + floorBonus * 0.8;
+    rawCrit = 1;
   } else if (slot === 'armor') {
-    hp = Math.round((baseScale * 25 + Math.floor(Math.random() * 35)) * mult);
-    if (Math.random() < 0.4) {
-      atk = Math.round((baseScale * 0.8) * mult);
-    }
+    rawHp = 80 + floorBonus * 22;
+    rawAtk = 3 + floorBonus * 0.6;
   } else if (slot === 'leggings') {
-    hp = Math.round((baseScale * 18 + Math.floor(Math.random() * 25)) * mult);
-    atk = Math.round((baseScale * 0.6) * mult);
+    rawHp = 60 + floorBonus * 16;
+    rawAtk = 2 + floorBonus * 0.5;
   } else if (slot === 'boots') {
-    hp = Math.round((baseScale * 12 + Math.floor(Math.random() * 16)) * mult);
-    atk = Math.round((baseScale * 1.1 + Math.floor(Math.random() * 3)) * mult);
-    if (Math.random() < 0.5) {
-      critRate = Math.round((1 + Math.random() * 2) * mult);
-    }
+    rawHp = 40 + floorBonus * 10;
+    rawAtk = 5 + floorBonus * 1.0;
+    rawCrit = 1;
   } else if (slot === 'ring') {
-    // 반지는 크리티컬 확률 및 특화 스탯
-    critRate = Math.round((2 + Math.random() * 4) * mult);
-    atk = Math.round((baseScale * 1.6 + Math.floor(Math.random() * 5)) * mult);
-    hp = Math.round((baseScale * 8) * mult);
+    // 반지는 치명타 확률 및 균형 잡힌 공체
+    rawHp = 25 + floorBonus * 6;
+    rawAtk = 6 + floorBonus * 1.4;
+    rawCrit = 3 + Math.floor(floorBonus / 25);
   }
+
+  const atk = rawAtk > 0 ? Math.round(rawAtk * variance * mult) : 0;
+  const hp = rawHp > 0 ? Math.round(rawHp * variance * mult) : 0;
+  const critRate = rawCrit > 0 ? Math.round(rawCrit * mult) : 0;
 
   const names = ITEM_NAMES[slot][element];
   const chosenName = names[Math.floor(Math.random() * names.length)];
-  const price = Math.round((baseScale * 10 + atk * 2 + hp * 0.5 + critRate * 50) * mult);
+  const price = Math.round((10 + floorBonus * 15 + atk * 2 + hp * 0.5 + critRate * 50) * mult);
 
   return {
     id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -444,7 +514,7 @@ const MONSTER_NAMES: Record<ElementType, string[]> = {
   쇠: ['태엽 쥐', '녹슨 기계병', '강철 톱니칼날', '합금 경비병', '증기 골렘', '은빛 칼날기사', '중장갑 오토마톤'],
 };
 
-export function createMonsterForFloor(towerId: number, floor: number): Monster {
+export function createMonsterForFloor(towerId: number, floor: number, towerCycle = 1): Monster {
   const currentTower = TOWERS.find((t) => t.id === towerId) || TOWERS[0];
   const isBoss = floor % 10 === 0 || floor === 100;
   const effectiveLevel = (towerId - 1) * 100 + floor;
@@ -452,15 +522,22 @@ export function createMonsterForFloor(towerId: number, floor: number): Monster {
   let name = '';
   let monsterType: Monster['monsterType'] = 'slime';
   let bossTraits: BossTrait[] | undefined = undefined;
+  let specialPattern: Monster['specialPattern'] = undefined;
+
+  const cyclePrefix = towerCycle > 1 ? `[${towerCycle}회차] ` : '';
 
   if (floor === 100) {
-    name = `[탑의 최종보스] ${currentTower.bossName}`;
+    name = `${cyclePrefix}[탑의 최종보스] ${currentTower.bossName}`;
     monsterType = 'boss';
     // 100층 최종보스는 3가지 수문장 효과를 모두 보유
     bossTraits = ['no-crit', 'ignore-element', 'first-strike'];
+    // 2회차 이상 최종보스는 무적 결계와 파멸 차징을 모두 구사
+    if (towerCycle > 1) {
+      specialPattern = 'all';
+    }
   } else if (isBoss) {
     const list = MONSTER_NAMES[currentTower.element];
-    const prefix = `${floor}층 수문장`;
+    const prefix = `${cyclePrefix}${floor}층 수문장`;
     name = `${prefix} ${list[Math.floor(Math.random() * list.length)]}`;
     monsterType = 'boss';
 
@@ -476,9 +553,19 @@ export function createMonsterForFloor(towerId: number, floor: number): Monster {
       const secondTrait = traitPool[(seed + 1) % traitPool.length];
       bossTraits = [firstTrait, secondTrait];
     }
+
+    // 2회차 이상 수문장의 특수 패턴 배정 (무적 결계 또는 강력한 차징 공격)
+    if (towerCycle > 1) {
+      if (floor % 20 === 0) {
+        specialPattern = 'barrier'; // 20, 40, 60, 80층: 공격이 통하지 않는 무적 결계
+      } else {
+        specialPattern = 'charge'; // 10, 30, 50, 70, 90층: 파멸적인 일격 차징
+      }
+    }
   } else {
     const list = MONSTER_NAMES[currentTower.element];
-    name = `${list[(floor + effectiveLevel) % list.length]}`;
+    const baseName = list[(floor + effectiveLevel) % list.length];
+    name = `${cyclePrefix}${baseName}`;
     if (name.includes('골렘') || name.includes('거신')) monsterType = 'golem';
     else if (name.includes('사냥개') || name.includes('전갈') || name.includes('아귀') || name.includes('사마귀') || name.includes('쥐')) monsterType = 'beast';
     else if (name.includes('병') || name.includes('기사')) monsterType = 'knight';
@@ -488,8 +575,11 @@ export function createMonsterForFloor(towerId: number, floor: number): Monster {
   const bossHpMult = floor === 100 ? 5.5 : isBoss ? 2.5 : 1.0;
   const bossAtkMult = floor === 100 ? 2.0 : isBoss ? 1.4 : 1.0;
 
-  const baseHp = Math.round((70 + effectiveLevel * 22 + Math.pow(effectiveLevel, 1.4) * 5) * bossHpMult);
-  const baseAtk = Math.round((12 + effectiveLevel * 3.5 + Math.pow(effectiveLevel, 1.15) * 1.5) * bossAtkMult);
+  // 10개 탑 제패 후 회차(순환)별 적의 능력치 대폭 상향 (2회차는 2.5배, 3회차는 4.0배 등)
+  const cycleMultiplier = towerCycle <= 1 ? 1.0 : 1 + (towerCycle - 1) * 1.5;
+
+  const baseHp = Math.round((70 + effectiveLevel * 22 + Math.pow(effectiveLevel, 1.4) * 5) * bossHpMult * cycleMultiplier);
+  const baseAtk = Math.round((12 + effectiveLevel * 3.5 + Math.pow(effectiveLevel, 1.15) * 1.5) * bossAtkMult * cycleMultiplier);
 
   return {
     name,
@@ -501,5 +591,11 @@ export function createMonsterForFloor(towerId: number, floor: number): Monster {
     isBoss,
     monsterType,
     bossTraits,
+    specialPattern,
+    isImmune: false,
+    immuneTurns: 0,
+    isCharging: false,
+    chargeTurns: 0,
+    patternNotice: undefined,
   };
 }
